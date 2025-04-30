@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Map This - UK Postcode Mapper</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #map { height: 600px; margin-top: 20px; }
+    input[type="file"] { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Map This</h1>
+  <p>Upload a spreadsheet with UK postcodes to map the locations.</p>
+  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.ods" />
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.3.2/papaparse.min.js"></script>
+
+  <!-- Split postcode database parts -->
+  <script src="postcodeDB_part1.js"></script>
+  <script src="postcodeDB_part2.js"></script>
+  <script src="postcodeDB_part3.js"></script>
+  <script>
+    const postcodeDB = {
+      ...postcodeDB_part1,
+      ...postcodeDB_part2,
+      ...postcodeDB_part3
+    };
+  </script>
+
+  <script>
+    document.getElementById('fileInput').addEventListener('change', handleFile);
+
+    function handleFile(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      reader.onload = function(event) {
+        if (ext === 'csv') {
+          const data = Papa.parse(event.target.result, { header: true });
+          plotData(data.data);
+        } else {
+          const workbook = XLSX.read(event.target.result, { type: 'binary' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const json = XLSX.utils.sheet_to_json(sheet);
+          plotData(json);
+        }
+      };
+
+      if (ext === 'csv') {
+        reader.readAsText(file);
+      } else {
+        reader.readAsBinaryString(file);
+      }
+    }
+
+    function plotData(data) {
+      const map = L.map('map').setView([54.5, -3.5], 6);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+
+      let plotted = 0;
+      data.forEach(row => {
+        const rawPostcode = (row.Postcode || row.postcode || '').replace(/\s/g, '').toUpperCase();
+        if (postcodeDB[rawPostcode]) {
+          const [lat, lng] = postcodeDB[rawPostcode];
+          L.marker([lat, lng]).addTo(map).bindPopup(`${row.Operator || 'Location'}<br>${rawPostcode}`);
+          plotted++;
+        }
+      });
+
+      if (plotted === 0) {
+        alert("No valid postcodes found in your file.");
+      }
+    }
+  </script>
+</body>
+</html>
