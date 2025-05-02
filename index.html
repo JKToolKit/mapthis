@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MapThis – Upload and Visualize UK Locations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #map { height: 600px; border: 1px solid #ccc; margin-top: 20px; }
+    .notice {
+      background: #e8f5e9;
+      border-left: 6px solid #4caf50;
+      padding: 10px;
+      margin-bottom: 15px;
+    }
+    .status {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+    button { margin-top: 10px; padding: 10px; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>MapThis</h1>
+  <div class="notice">
+    <strong>Privacy Notice:</strong> Your file is processed locally in your browser. Nothing is uploaded.
+  </div>
+  <p>Select a spreadsheet file (CSV, Excel, or ODS) that contains UK location data such as postcodes or addresses.</p>
+  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.ods" />
+  <button onclick="triggerDeanGaffney(postcodeDB)">Where should Dean Gaffney go?</button>
+  <div class="status" id="status"></div>
+  <div id="map"></div>
+
+  <!-- Core libraries -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.3.2/papaparse.min.js"></script>
+
+  <!-- Postcode DB and Dean Gaffney script -->
+  <script src="postcodeDB_part1.js"></script>
+  <script src="postcodeDB_part2.js"></script>
+  <script src="postcodeDB_part3.js"></script>
+  <script src="deanGaffney.js"></script>
+
+  <script>
+    window.onload = () => {
+      const postcodeDB = {
+        ...postcodeDB_part1,
+        ...postcodeDB_part2,
+        ...postcodeDB_part3
+      };
+
+      const map = L.map('map').setView([54.5, -3.5], 6);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+
+      window.gmap = map;
+      const status = document.getElementById('status');
+
+      document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        const ext = file.name.split('.').pop().toLowerCase();
+
+        status.textContent = "Reading file...";
+        reader.onload = function(event) {
+          let rows;
+          if (ext === 'csv') {
+            rows = Papa.parse(event.target.result, { header: true }).data;
+          } else {
+            const wb = XLSX.read(event.target.result, { type: 'binary' });
+            const sheet = wb.Sheets[wb.SheetNames[0]];
+            rows = XLSX.utils.sheet_to_json(sheet);
+          }
+          processRows(rows);
+        };
+
+        if (ext === 'csv') reader.readAsText(file);
+        else reader.readAsBinaryString(file);
+      });
+
+      function processRows(rows) {
+        const markerCandidates = [];
+        const postcodePattern = /[A-Z]{1,2}[0-9][0-9A-Z]? ?[0-9][A-Z]{2}/i;
+
+        rows.forEach(row => {
+          const rawValues = Object.values(row).map(v => String(v));
+          for (let val of rawValues) {
+            const match = val.toUpperCase().replace(/\s+/g, '').match(postcodePattern);
+            if (match) {
+              const cleaned = match[0].toUpperCase().replace(/\s/g, '');
+              const coords = postcodeDB[cleaned];
+              if (coords) {
+                const label = row.Operator || row.Name || "Unknown";
+                markerCandidates.push({ lat: coords[0], lng: coords[1], label, postcode: cleaned });
+                break;
+              }
+            }
+          }
+        });
+
+        if (markerCandidates.length === 0) {
+          status.textContent = "No valid UK postcodes found in your data.";
+        } else {
+          status.textContent = `Found ${markerCandidates.length} locations. Plotting...`;
+          markerCandidates.forEach(loc => {
+            L.marker([loc.lat, loc.lng])
+              .addTo(map)
+              .bindPopup(`<b>${loc.label}</b><br>${loc.postcode}`);
+          });
+        }
+      }
+    };
+  </script>
+</body>
+</html>
